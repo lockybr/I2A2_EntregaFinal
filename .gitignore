@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log
+build/
+.env.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Environment
+.env
+
+# Data
+data/documents/*
+data/exports/*
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store

@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # Backend Python/FastAPI
+  backend:
+    build: ./backend
+    container_name: fiscal-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://fiscal:fiscalpass@postgres:5432/fiscal_db
+      - MONGODB_URL=mongodb://mongo:27017/fiscal_db
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - postgres
+      - mongo
+      - redis
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - fiscal-network
+
+  # Frontend React
+  frontend:
+    build: ./frontend
+    container_name: fiscal-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    restart: unless-stopped
+    networks:
+      - fiscal-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: fiscal-postgres
+    environment:
+      - POSTGRES_USER=fiscal
+      - POSTGRES_PASSWORD=fiscalpass
+      - POSTGRES_DB=fiscal_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - fiscal-network
+
+  # MongoDB
+  mongo:
+    image: mongo:7-jammy
+    container_name: fiscal-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+    networks:
+      - fiscal-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: fiscal-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - fiscal-network
+
+networks:
+  fiscal-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
