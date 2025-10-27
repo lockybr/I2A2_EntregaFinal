@@ -1,48 +1,57 @@
 # Sistema Inteligente de Extração de Dados Fiscais
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![Python](https://img.shields.io/badge/python-3.11-blue.svg)
-![React](https://img.shields.io/badge/react-18-blue.svg)
+![](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![](https://img.shields.io/badge/python-3.11-blue.svg)
+![](https://img.shields.io/badge/react-18-blue.svg)
 
-Sistema completo com **5 Agentes de IA** para extração automatizada de dados fiscais brasileiros.
+Este repositório contém um sistema completo para extração automatizada de informações fiscais a partir de documentos (PDF, imagens, XML, cupons). O projeto combina OCR, heurísticas, agentes especializados e uma camada de LLM para enriquecer e normalizar os dados extraídos.
 
-## 🚀 Quick Start
+Principais objetivos
+- Receber uploads de documentos fiscais (PDF, imagens, XML, CSV/Texto).
+- Extrair texto com OCR quando necessário e, quando possível, aproveitar texto selecionável do PDF.
+- Rodar agentes heurísticos e um LLM (opcional, via OpenRouter) para estruturar campos fiscais (emitente, destinatário, itens, impostos, totais, chave de acesso, etc.).
+- Normalizar, computar agregados (valor_total_calc, impostos) e persistir um registro leve por documento.
+- Fornecer uma UI para acompanhar uploads, status do pipeline e inspecionar os resultados.
+
+Documentação completa e detalhada está na pasta `docs/` neste repositório. Consulte os seguintes arquivos:
+
+- `docs/ARCHITECTURE.md` — visão geral da arquitetura, diagrama de componentes, fluxo e operações de manutenção.
+- `docs/AGENTS.md` — descrição pormenorizada de cada agente (`ocr_agent`, `nlp_agent`, `enrichment_agent`, etc.).
+
+Recomendo abrir esses arquivos para entender o desenho de módulos e o fluxo de dados.
+
+## 🚀 Quick start (dev)
+
+Requisitos mínimos
+- Python 3.10+ (recomendado 3.11)
+- Node.js 16+ / npm
+- Tesseract OCR (opcional local; o container já inclui o binário)
+
+Com Docker (recomendado para a maioria dos ambientes):
 
 ```bash
-# 1. Configure ambiente
-cp .env.example .env
-# Edite .env e adicione OPENAI_API_KEY
+# inicia backend + frontend via docker-compose
+docker-compose up --build
 
-# 2. Inicie todos os serviços
-docker-compose up -d
-
-# 3. Acesse
-Frontend: http://localhost:3000
-Backend:  http://localhost:8000
-API Docs: http://localhost:8000/api/docs
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:8000
+# API docs (fastapi): http://localhost:8000/docs
 ```
 
-### Observações importantes
+Execução local (sem Docker)
 
-- O `Dockerfile` do `backend` instala o Tesseract dentro da imagem, portanto usar `docker-compose` é a forma recomendada para evitar instalar Tesseract localmente.
-- Para desenvolvimento local sem Docker (Windows), você pode colocar um binário portátil do Tesseract em `backend/tools/tesseract/tesseract.exe`. O backend detecta automaticamente esse executável ou a variável de ambiente `TESSERACT_CMD`.
-
-### Execução local (sem Docker)
-
-1. Backend (Windows/macOS/Linux)
+Backend (PowerShell exemplo)
 
 ```powershell
-# Windows PowerShell (exemplo)
 cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-# se você tem tesseract instalado globalmente, tudo pronto
-# caso contrário, defina a variável TESSERACT_CMD para apontar para o binário
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+# Se necessário, aponte Tesseract: $env:TESSERACT_CMD = 'C:\path\to\tesseract.exe'
+uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-2. Frontend
+Frontend
 
 ```powershell
 cd frontend
@@ -50,55 +59,52 @@ npm install
 npm start
 ```
 
-### CI / GitHub Actions
+## API (endpoints principais)
+- POST /api/v1/documents/upload — envia um ou múltiplos arquivos; retorna IDs criados e agenda processamento em background.
+- GET /api/v1/documents — lista documentos com metadados resumidos (status, progress, aggregates, preview de ocr/raw_extracted).
+- GET /api/v1/documents/{id}/results — retorna o registro completo do documento (extracted_data, ocr_text, raw_extracted, aggregates, status).
+- GET /api/v1/documents/{id}/download — baixa o arquivo original enviado.
+- POST /api/v1/documents/{id}/enrich — força reexecução das heurísticas de enriquecimento em um documento específico.
+- POST /api/v1/admin/recompute_aggregates — recomputa agregados para todos os documentos a partir do campo `extracted_data`.
+- POST /api/v1/admin/reload_db — recarrega o DB de disco para memória (útil após restaurar `backend/api/documents_db.json`).
+- GET /api/v1/admin/db_info — mostra caminho e preview do arquivo `documents_db.json` usado pelo processo.
 
-Há um workflow de exemplo em `.github/workflows/ci.yml` que compila e testa a aplicação em cada push. Para publicar imagens em um registry, adicione as credenciais como secrets no repositório.
+## Componentes e agentes
 
-### Makefile & helper scripts
+Backend (local, leve):
+- FastAPI — servidor HTTP da API.
+- Persistência: um arquivo JSON atômico em `backend/api/documents_db.json` (a persistência é deliberadamente simples para facilitar deploys e debugging).
 
-- Execute `make build` para construir imagens via Docker Compose.
-- Execute `make up` para subir os serviços (docker compose up -d).
-- `make renormalize` executa `backend/re_normalize_db.py` para recalcular e persistir agregados (valor_total_calc e impostos_calc) em `backend/api/documents_db.json`.
-- Há scripts em `scripts/` para baixar um Tesseract portátil:
-	- `scripts/get_tesseract.sh` (Linux/macOS)
-	- `scripts/get_tesseract.ps1` (Windows PowerShell)
+Agentes (dentro de `backend/agents`):
+- `ocr_agent.py` — funções utilitárias e wrappers para Tesseract/pdf2image/extract_text.
+- `nlp_agent.py` — helper e regras de NER / limpeza de texto.
+- `specialist_agent.py` — heurísticas para detectar seção de produtos e extrair linhas de itens (multi-linha, quantidades, preços).
+- `enrichment_agent.py` — composição de heurísticas, regex e llamadas ao especialista/LLM para preencher campos faltantes.
+- `validation_agent.py` — regras fiscais básicas e validação de formatos (CNPJ, chave NF-e, datas).
+- `retrieval_agent.py` e `reporting_agent.py` — utilitários para busca simples e geração de relatórios.
 
-### Publishing images (GHCR)
+LLM integration
+- O sistema pode usar OpenRouter (via variável `OPENROUTER_API_KEY`) para chamadas de LLM. Se não houver chave válida, o fluxo usa heurísticas locais e LLM é desabilitado sem interromper o processamento.
 
-Use the provided workflow `.github/workflows/publish.yml` which will build images and push to GHCR when `GHCR_TOKEN` is configured in repository Secrets. The workflow builds multi-arch images for backend/frontend and runs a smoke `docker compose build`.
+Pipeline (por documento)
+1. ingestao — grava o upload e agenda o processamento.
+2. preprocessamento — tenta extrair texto selecionável de PDFs (PyPDF2/pdfminer).
+3. ocr — usa Tesseract se não houver texto selecionável.
+4. nlp — LLM e heurísticas tentam transformar texto em JSON estruturado.
+5. validacao — aplica regras e normalizações.
+6. finalizado — computa agregados, marca `status: finalizado` e persiste.
 
----
+## Mudanças recentes nesta branch
+- O front-end agora mostra "Processamentos" (no menu) e traz um modo onde múltiplos uploads mostram uma "Lista de Processamentos" com atualização em tempo real. Quando o primeiro documento terminar de processar após um upload múltiplo, o sistema abre automaticamente a visualização detalhada para esse documento.
 
-Se quiser, eu posso preparar um script `make` e um workflow de publicação pronto para sua conta do GitHub Packages/Registry — me diga se prefere que eu o adicione e eu preparo o arquivo com placeholders para secrets.
+## Limpeza e manutenção
+- Arquivos fonte não usados foram removidos ou marcados como deprecados para reduzir confusão. O armazenamento principal continua sendo o JSON simples em `backend/api`.
 
-## 📦 Componentes
+## Documentação e arquitetura
+- Veja `docs/ARCHITECTURE.md` para um diagrama textual (ASCII/PlantUML) e explicação dos módulos, responsabilidades e fluxo de dados.
 
-### Backend (Python/FastAPI)
-- **5 Agentes Especializados**: Recuperação, OCR, NLP, Validação, Relatórios
-- **CrewAI**: Orquestração de agentes
-- **Tesseract OCR**: Extração de texto (português BR)
-- **spaCy NLP**: Named Entity Recognition
-- **PostgreSQL + MongoDB + Redis**
+## Contribuindo
+- Abra issues para bugs ou melhorias. Para PRs, siga o padrão: branch com descrição curta, testes mínimos e atualize `docs/ARCHITECTURE.md` se a arquitetura mudar.
 
-### Frontend (React/TypeScript)
-- **Dashboard**: Monitoramento em tempo real
-- **Upload**: Drag-and-drop de documentos
-- **Pipeline View**: Status das 6 etapas
-- **Results**: Visualização de dados extraídos
-- **Export**: JSON, XML, CSV
-
-## 🏗️ Arquitetura
-
-Pipeline de 6 etapas:
-1. Ingestão → 2. Pré-processamento → 3. OCR → 4. NLP → 5. Validação → 6. Exportação
-
-## 📚 Tecnologias
-
-- **Backend**: Python 3.11, FastAPI, CrewAI, Tesseract, spaCy
-- **Frontend**: React 18, TypeScript, Axios
-- **Banco**: PostgreSQL 16, MongoDB 7, Redis 7
-- **Infra**: Docker, Kubernetes, Nginx
-
-## 📄 Licença
-
-MIT License
+## Licença
+MIT
