@@ -53,19 +53,13 @@ flowchart LR
 
 3. OCR
    - Caso não haja texto selecionável, o sistema usa pdf2image + Tesseract (pytesseract) para extrair texto de imagens.
-   - O caminho do executável Tesseract pode ser ajustado por `TESSERACT_CMD` ou detectado automaticamente se instalado no sistema.
+Frontend (desenvolvimento):
 
-4. NLP / LLM
-   - O texto resultante é passado para o agente NLP que aplica um prompt e, opcionalmente, chama o LLM via OpenRouter (configurado por `OPENROUTER_API_KEY`).
-   - Há uma série de proteções: sondagem no startup para verificar a chave, lista rotativa de modelos 'free' como fallback, e tentativa de fallback heurístico caso o LLM falhe.
-
-5. Enriquecimento
-   - O `enrichment_agent` aplica heurísticas especializadas (regex, heurísticas fiscalizadas) para preencher campos faltantes e harmonizar formatos.
-
-6. Validação e agregados
-   - O `validation_agent` aplica regras básicas (CNPJ, formatos de chave NF-e, datas) e o backend computa agregados (soma de itens, impostos) usando `compute_aggregates`.
-
-7. Finalização
+```powershell
+cd frontend
+npm install
+npm start
+```
    - O registro é marcado como `finalizado` e persistido.
 
 ## Dados e Persistência
@@ -113,31 +107,7 @@ npm install
 npm start
 ```
 
-Ou com Docker Compose (o ambiente pode já incluir Tesseract/poppler):
-
-```powershell
-docker-compose up --build
-```
-
-## Boas práticas de manutenção
-
-- Nunca delete os arquivos em `backend/api/archives/`; eles são backups e podem ser usados para restauração.
-- Use `DOCUMENTS_DB_PATH` para apontar para um arquivo limpo durante recuperação.
-- Evite executar múltiplos processos concorrentes usando o mesmo arquivo JSON sem um mecanismo de lock externo se estiver em produção.
-
-## Limitações conhecidas
-
-- Persistência baseada em JSON não é adequada para workloads concorrentes pesados ou para grandes volumes de dados (escalonar para uma DB relacional ou NoSQL é recomendado para produção).
-- Dependência em binários locais (Tesseract, poppler) requer configuração no host; containers mitigam isso.
-- Uso de LLMs via OpenRouter pode incorrer em latência, custos ou falhas de autenticação. O sistema trata isso com retries e fallbacks, mas resultados podem variar.
-
-## Próximos passos sugeridos
-
-- Adicionar scripts de migração/exportação para mover dados do JSON para um banco mais robusto.
-- Implementar testes automatizados de integração para o pipeline de OCR->NLP->Enrichment.
-- Adicionar métricas e observabilidade (Prometheus / logs estruturados) para monitorar falhas e tempo de processamento.
-
----
+Dependência em binários locais (Tesseract, poppler) requer configuração no host. Setup via container/Docker não faz parte desta entrega.
 Arquivo gerado automaticamente pelo time de manutenção. Para dúvidas, abra uma issue.
 # Fiscal Extraction System — Architecture and Documentation
 

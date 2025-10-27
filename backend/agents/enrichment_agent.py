@@ -126,21 +126,28 @@ def find_money(text: str) -> Optional[float]:
         except Exception:
             pass
 
-    # last resort: last plain number with decimal, but avoid CPF-like tokens
+    # last resort: last plain number with decimal, but avoid CPF/CNPJ-like tokens or sequences containing '/'
     last_num = re.findall(r'([0-9]+[\.,][0-9]{2})', text)
     if last_num:
         cand = last_num[-1]
-        # avoid interpreting CPF-like tokens (11 digits) as money
-        digits_only = re.sub(r'\D', '', cand)
-        if len(digits_only) == 11:
-            # likely a CPF; skip this candidate
+        # avoid interpreting CPF/CNPJ-like tokens or tokens that are part of patterns with '/'
+        # if the surrounding text contains a slash close to the match, it's likely an identifier (CNPJ) not a money value
+        span_index = text.rfind(cand)
+        context = text[max(0, span_index-10): span_index+len(cand)+10]
+        if '/' in context:
+            # likely CNPJ or composed identifier; skip
             pass
         else:
-            s = cand.replace('.', '').replace(',', '.')
-            try:
-                return float(s)
-            except Exception:
+            digits_only = re.sub(r'\D', '', cand)
+            if len(digits_only) in (11, 14):
+                # CPF or CNPJ-like length -> skip
                 pass
+            else:
+                s = cand.replace('.', '').replace(',', '.')
+                try:
+                    return float(s)
+                except Exception:
+                    pass
     return None
 
 

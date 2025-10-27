@@ -160,10 +160,11 @@ def _extract_address_parts(addr: str) -> Dict[str, Optional[str]]:
 #  - R$ 1.234,56
 #  - 420
 # Decimal cents are optional to account for some OCR outputs
-_money_re = re.compile(r'R?\$?\s*([0-9]{1,3}(?:[\.,][0-9]{3})*(?:[\.,][0-9]{2})?|[0-9]+)')
+_money_re = re.compile(r'R?\$?\s*([0-9]{1,3}(?:[\.,][0-9]{3})*(?:[\.,][0-9]{2,4}))')
 _ncm_re = re.compile(r'(?<!\d)(\d{8})(?!\d)')
 _cfop_re = re.compile(r'(?<!\d)(\d{4})(?!\d)')
-_qty_re = re.compile(r'(\d+[\.,]\d+|\d+[,\.]?\d*)')
+# Quantity: prefer numbers with decimal or accompanied by unit markers (UN, KG, PC, LT)
+_qty_re = re.compile(r'(\d+(?:[\.,]\d+)?)(?=\s*(?:x|X|UN\b|KG\b|PC\b|LT\b|UNID\b|UN\.\b)?)', re.IGNORECASE)
 
 
 def _parse_money_token(tok: str) -> Optional[float]:
@@ -201,6 +202,9 @@ def _parse_money_token(tok: str) -> Optional[float]:
         if s in ['', '-', ',', '.']:
             return None
         val = float(s)
+        # Reject implausible huge values that are likely identifiers (CNPJ-like OCR artifacts)
+        if val is not None and val > 10_000_000:
+            return None
         # round to cents to avoid floating representations like 420.0000001
         return round(val, 2)
     except Exception:
@@ -225,15 +229,20 @@ def _extract_items_from_lines(lines: List[str]) -> List[Dict[str, Any]]:
     while i < len(lines):
         ln = lines[i]
         ncm = _ncm_re.search(ln)
-        money = _money_re.search(ln)
+            # skip lines that are clearly weight/transport headers (avoid parsing peso as item value)
+            if re.search(r'PESO|PESO BRUTO|PESO L[IÍ]QUIDO|TRANSPORTADOR|FRETE', ln, re.IGNORECASE):
+                i += 1
+                continue
+            money = _money_re.search(ln)
         cfop = _cfop_re.search(ln)
-        if money and (ncm or cfop or re.search(r'\d+[\.,]\d{2}', ln)):
+            if money and (ncm or cfop or re.search(r'\d+[\.,]\d{2}', ln)):
             desc = re.sub(r'\b' + (ncm.group(1) if ncm else '') + r'\b', '', ln) if ncm else ln
             desc = re.sub(r'\s{2,}', ' ', desc).strip()
             if len(desc) < 5 and i > 0:
                 desc = lines[i-1]
             qty = None
-            qm = re.search(r'(\d+[\.,]\d+|\d+)(?=\s*[xX]|\s+UN|\s+KG|\s+LT|\s+PC|\s+P\xC7|\s+\s)', ln)
+                # find quantity only if it appears with unit markers or looks like a decimal count
+                qm = re.search(r'(\d+(?:[\.,]\d+)?)(?=\s*(?:x|X|UN\b|KG\b|PC\b|LT\b|UNID\b|UN\.\b))', ln, re.IGNORECASE)
             if not qm:
                 if i>0:
                     qm = _qty_re.search(lines[i-1])
@@ -260,22 +269,31 @@ def _extract_items_from_lines(lines: List[str]) -> List[Dict[str, Any]]:
             items.append(item)
             i += 1
             continue
-        if _money_re.search(ln) and i>0:
-            prev = lines[i-1]
-            val = _parse_money_token(_money_re.search(ln).group(1))
-            if val is not None and len(prev) > 3:
-                item = {
-                    'descricao': prev[:200],
-                    'quantidade': None,
-                    'unidade': None,
-                    'valor_unitario': val,
-                    'valor_total': val,
-                    'codigo': None,
-                    'ncm': None,
-                    'cfop': None,
-                    'cst': None
-                }
-                items.append(item)
+            if _money_re.search(ln) and i>0:
+                prev = lines[i-1]
+                # avoid using a prev line that is numeric-only (CNPJ, peso, codes)
+                if not re.search(r'[A-Za-zÀ-ÿ]', prev):
+                    # previous line has no letters -> likely not a description
+                    i += 1
+                    continue
+                val = _parse_money_token(_money_re.search(ln).group(1))
+                if val is not None and val <= 10000000 and len(prev) > 3:
+                    # also avoid prev that looks like a CNPJ/CPF
+                    if re.search(r'\d{2}[\.\s]?\d{3}[\.\s]?\d{3}[\/]?\d{4}[-\s]?\d{2}|\d{14}', prev):
+                        i += 1
+                        continue
+                    item = {
+                        'descricao': prev[:200],
+                        'quantidade': None,
+                        'unidade': None,
+                        'valor_unitario': val,
+                        'valor_total': val,
+                        'codigo': None,
+                        'ncm': None,
+                        'cfop': None,
+                        'cst': None
+                    }
+                    items.append(item)
         i += 1
     return items
 

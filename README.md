@@ -25,20 +25,9 @@ Recomendo abrir esses arquivos para entender o desenho de módulos e o fluxo de 
 Requisitos mínimos
 - Python 3.10+ (recomendado 3.11)
 - Node.js 16+ / npm
-- Tesseract OCR (opcional local; o container já inclui o binário)
+- Tesseract OCR (instale localmente no host e aponte `TESSERACT_CMD` se necessário)
 
-Com Docker (recomendado para a maioria dos ambientes):
-
-```bash
-# inicia backend + frontend via docker-compose
-docker-compose up --build
-
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:8000
-# API docs (fastapi): http://localhost:8000/docs
-```
-
-Execução local (sem Docker)
+Execução local (passos mínimos)
 
 Backend (PowerShell exemplo)
 
@@ -99,6 +88,7 @@ Pipeline (por documento)
 
 ## Limpeza e manutenção
 - Arquivos fonte não usados foram removidos ou marcados como deprecados para reduzir confusão. O armazenamento principal continua sendo o JSON simples em `backend/api`.
+- Instalação via Docker ou containers não faz parte desta entrega. Todos os arquivos de configuração de container foram removidos.
 
 ## Documentação e arquitetura
 - Veja `docs/ARCHITECTURE.md` para um diagrama textual (ASCII/PlantUML) e explicação dos módulos, responsabilidades e fluxo de dados.

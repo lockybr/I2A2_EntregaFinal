@@ -63,7 +63,7 @@ Itens da Nota
 
 ## Construção da Solução Técnica
 
- • Implementação de OCR com ferramentas como Tesseract
+ • Implementação de OCR com ferramentas como Tesseract.
  
  Aplicação de técnicas de NLP para:
  • Identificação de entidades fiscais (NER);
@@ -81,5 +81,32 @@ Itens da Nota
  
  • O sistema deve obrigatóriamente fazer uso de Agentes especialistas para executar as atividades CORE, por exemplo, de extração de dados, de OCR, de NLP, de relatórios e etc;
  • Usar um framework para orquestrar a solução, pode ser CrewAI, LangChain ou outro que você, como especialista, entenda que seja melhor adequado;
- • Ter uma interface web moderna e responsiva
- • Usar uma arquitetura moderna e modular para facilitar a manutenção e evolução da solução
+ • Ter uma interface web moderna e responsiva;
+ • Usar uma arquitetura moderna e modular para facilitar a manutenção e evolução da solução.
+
+ ## Documentação
+ O repositório do Github deve permitir acesso público e em seu readme.md deve se destacar que o projeto se encontra sob a licença MIT.
+
+ O Relatório do Projeto:
+ • Cada grupo deverá gerar um relatório em formato PDF;
+ • O arquivo deverá ter o nome: I2A2_Agentes_Inteligentes_Projeto_Final_<Nome_do_Grupo>.pdf
+ • No relatório deverá ser apresentado:
+ • Nome do Grupo
+ • Integrantes do Grupo
+ • Descrição do Tema Escolhido (o que foi feito)
+ • Público alvo (quem irá utilizar a solução)
+ • Justificativa do Tema Escolhido (por que isto é importante, o que agrega de valor ao público alvo)
+ • Detalhamento do que foi desenvolvido (quais as funções, como a solução é operada, etc.)
+ • Elementos adicionais: tabelas, gráficos, diagramas
+ • Link para o repositório do github que contém o projeto
+
+ ## Variáveis de apio
+ <NOME_DO_GRUPO> =  Os Promptados
+ <TEMA_ESCOLHIDO> =  Extração de Dados  Solução OCR + NLP para Documentos Fiscais
+ <INTEGRANTES_DO_GRUPO> = {
+    Ricardo: ricardo.florentino@gmail.com,
+	Patricia: patricia.correa@meta.com.br,
+	Sabrina: sabrina.nascimento@meta.com.br,
+	Saulo: saulo.belchior@gmail.com,
+	Wilson: wozu2003@gmail.com
+ }

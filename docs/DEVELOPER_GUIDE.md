@@ -49,12 +49,7 @@ npm install
 npm start
 ```
 
-Docker Compose (alternativa):
-
-```powershell
-cd C:\labz\fiscal-extraction-system-COMPLETO
-docker-compose up --build
-```
+<!-- Setup via Docker/Container não faz parte desta entrega. Todos os arquivos de configuração de container foram removidos. Execute localmente no host. -->
 
 ## Trabalhando com o DB JSON
 
