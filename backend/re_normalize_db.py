@@ -241,23 +241,81 @@ for doc_id, rec in db.items():
             except Exception:
                 parsed = None
     existing = rec.get('extracted_data')
-    # If parsed is None, try fallback heuristics using OCR text
-    if parsed is None and (not existing or (isinstance(existing, str) and existing.startswith('Erro'))):
-        heur = simple_receipt_parser(rec.get('ocr_text') or '')
+
+    # Compute fallback heuristics early
+    heur = simple_receipt_parser(rec.get('ocr_text') or '')
+
+    # helpers to detect CPFs and safely parse numeric candidates
+    def looks_like_cpf(s):
+        if not s:
+            return False
+        ss = str(s)
+        import re
+        if re.search(r"\d{3}\.\d{3}\.\d{3}-\d{2}", ss):
+            return True
+        digits = re.sub(r'\D', '', ss)
+        return len(digits) == 11
+
+    def safe_parse_number_candidate(x):
+        try:
+            if x is None:
+                return None
+            if isinstance(x, (int, float)):
+                return float(x)
+            s = str(x).strip()
+            # reject CPF-like tokens
+            if looks_like_cpf(s):
+                return None
+            s2 = s.replace('.', '').replace(',', '.')
+            return float(s2)
+        except Exception:
+            return None
+
+    def smart_merge(dst, src):
+        # dst: parsed (may be None), src: fallback
+        if not isinstance(src, dict):
+            return dst if isinstance(dst, dict) else src
+        if not isinstance(dst, dict):
+            return src
+        outm = dict(dst)
+        try:
+            dst_v = dst.get('valor_total')
+            src_v = src.get('valor_total')
+            if safe_parse_number_candidate(dst_v) is None and safe_parse_number_candidate(src_v) is not None:
+                outm['valor_total'] = src_v
+        except Exception:
+            pass
+        try:
+            dst_dest = dst.get('destinatario') or {}
+            src_dest = src.get('destinatario') or {}
+            dst_rs = dst_dest.get('razao_social') if isinstance(dst_dest, dict) else None
+            src_rs = src_dest.get('razao_social') if isinstance(src_dest, dict) else None
+            def short_or_noise(s):
+                if not s:
+                    return True
+                ss = str(s).strip()
+                if len(ss) <= 3:
+                    return True
+                return False
+            if (dst_rs is None or short_or_noise(dst_rs)) and (src_rs is not None and not short_or_noise(src_rs)):
+                outm['destinatario'] = dict(dst_dest) if isinstance(dst_dest, dict) else {}
+                outm['destinatario']['razao_social'] = src_rs
+                if not outm['destinatario'].get('cnpj') and src_dest.get('cnpj'):
+                    outm['destinatario']['cnpj'] = src_dest.get('cnpj')
+        except Exception:
+            pass
+        try:
+            if (not dst.get('itens')) and src.get('itens'):
+                outm['itens'] = src.get('itens')
+        except Exception:
+            pass
+        return outm
+
+    # Decide final extracted: prefer parsed plus smart repairs, else fallback
+    if parsed is None:
         final = heur
     else:
-        # Merge: prefer parsed values when existing looks sparse
-        if parsed is not None and isinstance(parsed, dict):
-            if isinstance(existing, dict):
-                try:
-                    merged = merge_dicts(existing, parsed)
-                    final = merged
-                except Exception:
-                    final = parsed
-            else:
-                final = parsed
-        else:
-            final = existing
+        final = smart_merge(parsed, heur)
 
     try:
         normalized = normalize_extracted(final) if final is not None else final

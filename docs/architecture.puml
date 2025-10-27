@@ -1,0 +1,25 @@
+@startuml
+title Fiscal Extraction System - High Level
+actor User
+rectangle Frontend {
+  [React UI] as UI
+}
+rectangle Backend {
+  [FastAPI API] as API
+  [Background Worker] as Worker
+}
+package Agents {
+  [OCR Agent]
+  [NLP Agent]
+  [Specialist Agent]
+  [Enrichment Agent]
+  [Validation Agent]
+}
+database "documents_db.json" as DB
+User -down-> UI : upload / view
+UI -right-> API : HTTP
+API -down-> Worker : schedule process
+Worker -right-> Agents : call
+Agents -down-> DB : update extracted_data, aggregates
+API -right-> DB : read/list
+@enduml

@@ -185,7 +185,7 @@ function Dashboard() {
           }
           // fallback: look for 'Vlr Aprox dos Tributos' pair Federal/Estadual
           if ((n === undefined || n === null || isNaN(n) || n === 0)){
-            const pair = text.match(/Vlr\s*Aprox[\s\S]*?([0-9\.,]+)\s*Federal\s*\/?\s*R?\$?\s*([0-9\.,]+)\s*Estad/i);
+            const pair = text.match(/Vlr\s*Aprox[\s\S]*?([0-9.,]+)\s*Federal\s*\/?\s*R?\$?\s*([0-9.,]+)\s*Estad/i);
             if (pair){
               const fed = parseNum(pair[1]);
               const est = parseNum(pair[2]);

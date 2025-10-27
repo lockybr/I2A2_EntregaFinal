@@ -1,47 +1,48 @@
 # Framework de Agentes
-crewai==0.28.0
-langchain==0.1.0
-langchain-openai==0.0.5
-openai==1.12.0
+crewai
+langchain
+langchain-openai
+openai
 
 # API Framework
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.9
-pydantic==2.6.0
-pydantic-settings==2.1.0
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+pydantic-settings
 
 # OCR
-pytesseract==0.3.10
-pdf2image==1.17.0
-opencv-python==4.9.0.80
-Pillow==10.2.0
+pytesseract
+pdf2image
+opencv-python
+Pillow
+PyPDF2
 
 # NLP
-spacy==3.7.2
-transformers==4.37.0
+spacy
+transformers
 
 # Data Processing
-pandas==2.2.0
-numpy==1.26.3
-openpyxl==3.1.2
+pandas
+numpy
+openpyxl
 
 # Database
-psycopg2-binary==2.9.9
-pymongo==4.6.1
-redis==5.0.1
-sqlalchemy==2.0.25
+psycopg2-binary
+pymongo
+redis
+sqlalchemy
 
 # HTTP Clients
-httpx==0.26.0
-requests==2.31.0
+httpx
+requests
 
 # Utilities
-python-dateutil==2.8.2
-python-dotenv==1.0.0
-pyyaml==6.0.1
-jinja2==3.1.3
+python-dateutil
+python-dotenv
+pyyaml
+jinja2
 
 # Testing
-pytest==8.0.0
-pytest-asyncio==0.23.4
+pytest
+pytest-asyncio

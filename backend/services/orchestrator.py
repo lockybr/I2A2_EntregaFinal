@@ -2,12 +2,22 @@
 from crewai import Crew, Process
 from langchain_openai import ChatOpenAI
 from agents import *
+import os
+import sys
+from pydantic import SecretStr
+
 
 class FiscalCrewOrchestrator:
     """Orquestrador principal usando CrewAI"""
 
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4", temperature=0.1)
+        # Read OpenRouter API key from environment for orchestrator usage as well
+        _raw_key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_KEY')
+        OPENROUTER_API_KEY = SecretStr(_raw_key) if _raw_key else None
+        OPENROUTER_MODEL = os.environ.get('OPENROUTER_MODEL', "gpt-4")
+        if not OPENROUTER_API_KEY:
+            print('[CONFIG] Warning: OPENROUTER_API_KEY not set for orchestrator. LLM calls may fail.', file=sys.stderr)
+        self.llm = ChatOpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1", model=OPENROUTER_MODEL, temperature=0.1)
 
         # Inicializar 5 agentes
         self.retrieval = DocumentRetrievalAgent(self.llm)

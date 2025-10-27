@@ -3,19 +3,19 @@ import axios from 'axios';
 import './App.css';
 import Dashboard from './components/Dashboard';
 import Upload from './components/Upload';
-import ProcessingView from './components/ProcessingViewFixed';
 import ProcessingHistory from './components/ProcessingHistory';
+import { BrowserRouter as Router, Routes, Route, NavLink, useNavigate } from 'react-router-dom';
 
-function App() {
-  const [currentView, setCurrentView] = useState('dashboard');
+function AppInner() {
   const [uploadedDocs, setUploadedDocs] = useState([]);
+  const navigate = useNavigate();
 
   const openProcessing = (doc) => {
-    // set uploadedDocs to a single-entry list so ProcessingView uses it as selected doc
-    // accept either a full doc object or just an id
     if (doc && doc.id && doc.filename) setUploadedDocs([{ id: doc.id, filename: doc.filename, uploaded_at: doc.uploaded_at }]);
     else if (doc && doc.id) setUploadedDocs([{ id: doc.id, filename: doc.id, uploaded_at: doc.uploaded_at }]);
-    setCurrentView('processing');
+    // navigate to document detail route
+    const id = doc && (doc.id || (doc.id === 0 && String(doc.id))) ? (doc.id) : (uploadedDocs[0] && uploadedDocs[0].id);
+    if (id) navigate(`/document/${id}`);
   };
 
   // docs: array of ids or full objects
@@ -27,14 +27,17 @@ function App() {
     try {
       if (!docs || !docs.length) {
         setUploadedDocs([]);
-        setCurrentView('processing');
+        navigate('/processamentos');
         return;
       }
       // if items look like objects already, pass through
       const areObjects = docs.every(d => typeof d === 'object' && d !== null && d.id && d.filename);
       if (areObjects) {
         setUploadedDocs(docs);
-        setCurrentView('processing');
+        // if first doc exist, navigate to its detail
+        const id = docs[0] && docs[0].id ? docs[0].id : null;
+        if (id) navigate(`/document/${id}`);
+        else navigate('/processamentos');
         return;
       }
 
@@ -52,7 +55,14 @@ function App() {
         return { id, filename, uploaded_at: '' };
       });
       setUploadedDocs(resolved);
-      setCurrentView('processing');
+      // If multiple docs uploaded, show the unified processing list screen.
+      if (Array.isArray(resolved) && resolved.length > 1) {
+        navigate('/processamentos');
+      } else {
+        const firstId = resolved && resolved[0] && resolved[0].id ? resolved[0].id : null;
+        if (firstId) navigate(`/document/${firstId}`);
+        else navigate('/processamentos');
+      }
     } catch (e) {
       // fallback: set ids as-is (component will display ids as filenames)
       console.warn('Could not resolve uploaded docs metadata, falling back to ids', e?.message || e);
@@ -63,7 +73,13 @@ function App() {
         return { id: d, filename: fileObj ? fileObj.name : d };
       });
       setUploadedDocs(fallback);
-      setCurrentView('processing');
+      if (Array.isArray(fallback) && fallback.length > 1) {
+        navigate('/processamentos');
+      } else {
+        const fid = fallback && fallback[0] && fallback[0].id ? fallback[0].id : null;
+        if (fid) navigate(`/document/${fid}`);
+        else navigate('/processamentos');
+      }
     }
   };
 
@@ -71,37 +87,36 @@ function App() {
     <div className="App">
       <header className="App-header">
         <div className="header-content">
-          <h1>📊 Sistema de Extração Fiscal</h1>
+          <h1>Sistema de Extração Fiscal</h1>
           <p>Extração Inteligente com Agentes de IA</p>
         </div>
         <nav className="nav-buttons">
-          <button onClick={() => setCurrentView('dashboard')} 
-                  className={currentView === 'dashboard' ? 'active' : ''}>
-            Dashboard
-          </button>
-          <button onClick={() => setCurrentView('history')}
-                  className={currentView === 'history' ? 'active' : ''}>
-            Histórico
-          </button>
-          <button onClick={() => setCurrentView('upload')}
-                  className={currentView === 'upload' ? 'active' : ''}>
-            Upload
-          </button>
+          <NavLink to="/" className={({isActive}) => isActive ? 'active' : ''}>Dashboard</NavLink>
+          <NavLink to="/processamentos" className={({isActive}) => isActive ? 'active' : ''}>Processamentos</NavLink>
+          <NavLink to="/upload" className={({isActive}) => isActive ? 'active' : ''}>Upload</NavLink>
         </nav>
       </header>
 
       <main className="App-main">
-        {currentView === 'dashboard' && <Dashboard />}
-        {currentView === 'upload' && <Upload onUpload={handleUpload} />}
-        {currentView === 'history' && <ProcessingHistory onOpenDocument={openProcessing} />}
-        {currentView === 'processing' && <ProcessingView docs={uploadedDocs} />}
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/processamentos" element={<ProcessingHistory onOpenDocument={openProcessing} uploadedDocs={uploadedDocs} />} />
+          <Route path="/upload" element={<Upload onUpload={(docs, files) => { handleUpload(docs, files); }} />} />
+          <Route path="/document/:id" element={<ProcessingHistory onOpenDocument={openProcessing} uploadedDocs={uploadedDocs} />} />
+        </Routes>
       </main>
 
       <footer className="App-footer">
-        <p>Powered by CrewAI • FastAPI • React • Tesseract OCR</p>
+        <p>Powered by FastAPI • React • Tesseract OCR</p>
       </footer>
     </div>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <Router>
+      <AppInner />
+    </Router>
+  );
+}

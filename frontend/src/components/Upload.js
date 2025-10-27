@@ -8,6 +8,7 @@ function Upload({ onUpload }) {
   const [files, setFiles] = useState([]);
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -58,15 +59,14 @@ function Upload({ onUpload }) {
         `${API_URL}/api/v1/documents/upload`,
         formData
       );
-
-  alert(response.data.message);
-  // pass both the returned ids and the original File objects so the caller
-  // can show the original filenames immediately (the backend list may
-  // not yet include the new documents while they are processing)
-  onUpload(response.data.document_ids, files);
+      // pass both the returned ids and the original File objects so the caller
+      // can show the original filenames immediately (the backend list may
+      // not yet include the new documents while they are processing)
+      onUpload(response.data.document_ids, files);
+      setErrorMsg('');
       setFiles([]);
     } catch (error) {
-      alert('Erro ao fazer upload: ' + error.message);
+      setErrorMsg('Erro ao fazer upload: ' + (error.message || 'unknown'));
     } finally {
       setUploading(false);
     }
@@ -104,6 +104,7 @@ function Upload({ onUpload }) {
 
       {files.length > 0 && (
         <div className="files-list">
+          {errorMsg && <div className="upload-error">{errorMsg}</div>}
           <h3>📋 Arquivos Selecionados ({files.length})</h3>
           {files.map((file, index) => (
             <div key={index} className="file-item">
@@ -114,8 +115,8 @@ function Upload({ onUpload }) {
                   <div className="file-size">{(file.size / 1024).toFixed(2)} KB</div>
                 </div>
               </div>
-              <button onClick={() => removeFile(index)} className="remove-btn">
-                ✕
+              <button onClick={() => removeFile(index)} className="remove-btn" aria-label="Remover arquivo">
+                🗑️
               </button>
             </div>
           ))}
