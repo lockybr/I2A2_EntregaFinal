@@ -36,6 +36,9 @@ flowchart LR
   end
 
   C -. backup/rotate .-> C_backup[(archives/)]
+> Nota: a versão renderizável do diagrama (arquivo SVG) está disponível em `docs/assets/architecture.svg` — alguns ambientes não conseguem renderizar Mermaid diretamente; o SVG contém o diagrama sanitizado para visualização imediata.
+
+![Arquitetura](/docs/assets/architecture.svg)
 ```
 
 ## Fluxo de processamento (por documento)

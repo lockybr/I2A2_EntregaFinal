@@ -1,0 +1,23 @@
+flowchart LR
+  subgraph Frontend
+    A[UI (React)] -->|POST /api/v1/documents/upload| B[Backend API]
+    A -->|GET /api/v1/documents| B
+    A -->|GET /api/v1/documents/{id}/results| B
+  end
+
+  subgraph Backend
+    B --> C[Persistence (documents_db.json)]
+    B --> D[Background Processor]
+    D --> E[OCR Agent (Tesseract / pdf2image)]
+    D --> F[NLP Agent (heuristics + LLM)]
+    D --> G[Enrichment Agent]
+    D --> H[Validation Agent]
+    G --> F
+  end
+
+  subgraph External
+    I[OpenRouter / LLM] -. optional .-> F
+    J[Poppler / Tesseract Binaries] --> E
+  end
+
+  C -. backup/rotate .-> C_backup[(archives/)]

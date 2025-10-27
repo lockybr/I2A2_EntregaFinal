@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600">
+  <style>
+    .mono { font-family: Consolas, 'Courier New', monospace; font-size:12px; }
+  </style>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="16" y="24" class="mono">Mermaid diagram (sanitized) source:</text>
+  <foreignObject x="16" y="32" width="1168" height="552">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:monospace; font-size:12px; white-space:pre;">
+flowchart LR
+  subgraph Frontend
+    A[UI (React)] --> POST_UPLOAD[POST /api/v1/documents/upload]
+    A --> GET_LIST[GET /api/v1/documents]
+    A --> GET_RESULT[GET /api/v1/documents/:id/results]
+  end
+
+  subgraph Backend
+    B[Backend API] --> C[Persistence (documents_db.json)]
+    B --> D[Background Processor]
+    D --> E[OCR Agent (Tesseract / pdf2image)]
+    D --> F[NLP Agent (heuristics + LLM)]
+    D --> G[Enrichment Agent]
+    D --> H[Validation Agent]
+    G --> F
+  end
+
+  subgraph External
+    I[OpenRouter / LLM] -. optional .-> F
+    J[Poppler / Tesseract Binaries] --> E
+  end
+
+  C -. backup/rotate .-> C_backup[(archives/)]
+    </div>
+  </foreignObject>
+</svg>
