@@ -338,7 +338,7 @@ Implementamos priorização de LLM sobre regex conforme solicitado:
 
 ## 🔗 Link para o Repositório
 
-**GitHub:** https://github.com/lockybr/Projeto-Final---Artefatos.git
+**GitHub:** https://github.com/lockybr/Projeto-Final-Artefatos.git
 
 ### Estrutura do Repositório:
 ```
