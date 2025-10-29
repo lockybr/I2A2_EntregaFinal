@@ -163,6 +163,10 @@ def _extract_address_parts(addr: str) -> Dict[str, Optional[str]]:
 _money_re = re.compile(r'R?\$?\s*([0-9]{1,3}(?:[\.,][0-9]{3})*(?:[\.,][0-9]{2,4}))')
 _ncm_re = re.compile(r'(?<!\d)(\d{8})(?!\d)')
 _cfop_re = re.compile(r'(?<!\d)(\d{4})(?!\d)')
+# CST: 2 or 3 digits (00-99 or 000-999)
+_cst_re = re.compile(r'(?:CST[:\s]*|CSOSN[:\s]*)(\d{2,3})(?!\d)', re.IGNORECASE)
+# CSOSN: 3 digits (101, 102, 103, 201, 202, 203, 300, 400, 500, 900)
+_csosn_re = re.compile(r'(?:CSOSN[:\s]*)([1-9]\d{2})(?!\d)', re.IGNORECASE)
 # Quantity: prefer numbers with decimal or accompanied by unit markers (UN, KG, PC, LT)
 _qty_re = re.compile(r'(\d+(?:[\.,]\d+)?)(?=\s*(?:x|X|UN\b|KG\b|PC\b|LT\b|UNID\b|UN\.\b)?)', re.IGNORECASE)
 
@@ -223,26 +227,99 @@ def _find_product_section_lines(text: str) -> List[str]:
     return lines[-80:]
 
 
+def _extract_codes_with_llm(text: str) -> Dict[str, Optional[str]]:
+    """Extract fiscal codes using LLM first, then regex fallback."""
+    codes = {'ncm': None, 'cfop': None, 'cst': None, 'csosn': None}
+    
+    # Try LLM for each code
+    try:
+        from . import llm_helper
+        for code_name in codes.keys():
+            result = llm_helper.extract_field_with_llm(code_name, text)
+            if result.get('ok') and result.get('value') and result.get('confidence', 0) >= 0.6:
+                codes[code_name] = result.get('value')
+    except Exception:
+        pass
+    
+    # Fallback to regex for any missing codes
+    if not codes.get('ncm'):
+        m = _ncm_re.search(text)
+        if m:
+            codes['ncm'] = m.group(1)
+    
+    if not codes.get('cfop'):
+        m = _cfop_re.search(text)
+        if m:
+            codes['cfop'] = m.group(1)
+    
+    if not codes.get('cst'):
+        m = _cst_re.search(text)
+        if m:
+            codes['cst'] = m.group(1)
+    
+    if not codes.get('csosn'):
+        m = _csosn_re.search(text)
+        if m:
+            codes['csosn'] = m.group(1)
+    
+    return codes
+
+
+def _extract_items_with_llm(text: str) -> List[Dict[str, Any]]:
+    """Extract items using LLM first, then heuristic fallback."""
+    try:
+        from . import llm_helper
+        result = llm_helper.extract_items_with_llm(text)
+        if result.get('ok') and result.get('items') and result.get('confidence', 0) >= 0.6:
+            items = result.get('items', [])
+            # Normalize LLM items to our schema
+            normalized_items = []
+            for item in items:
+                if isinstance(item, dict):
+                    normalized = {
+                        'descricao': item.get('descricao'),
+                        'quantidade': item.get('quantidade'),
+                        'unidade': item.get('unidade'),
+                        'valor_unitario': item.get('valor_unitario'),
+                        'valor_total': item.get('valor_total'),
+                        'codigo': item.get('codigo'),
+                        'ncm': item.get('ncm'),
+                        'cfop': item.get('cfop'),
+                        'cst': item.get('cst')
+                    }
+                    normalized_items.append(normalized)
+            if normalized_items:
+                return normalized_items
+    except Exception:
+        pass
+    
+    # Fallback to heuristic extraction
+    lines = _find_product_section_lines(text)
+    return _extract_items_from_lines(lines)
+
+
 def _extract_items_from_lines(lines: List[str]) -> List[Dict[str, Any]]:
     items = []
     i = 0
     while i < len(lines):
         ln = lines[i]
         ncm = _ncm_re.search(ln)
-            # skip lines that are clearly weight/transport headers (avoid parsing peso as item value)
-            if re.search(r'PESO|PESO BRUTO|PESO L[IÍ]QUIDO|TRANSPORTADOR|FRETE', ln, re.IGNORECASE):
-                i += 1
-                continue
-            money = _money_re.search(ln)
+        # skip lines that are clearly weight/transport headers (avoid parsing peso as item value)
+        if re.search(r'PESO|PESO BRUTO|PESO L[IÍ]QUIDO|TRANSPORTADOR|FRETE', ln, re.IGNORECASE):
+            i += 1
+            continue
+        money = _money_re.search(ln)
         cfop = _cfop_re.search(ln)
-            if money and (ncm or cfop or re.search(r'\d+[\.,]\d{2}', ln)):
+        
+        # Look for item patterns - improved detection for multiple items
+        if money and (ncm or cfop or re.search(r'\d+[\.,]\d{2}', ln)):
             desc = re.sub(r'\b' + (ncm.group(1) if ncm else '') + r'\b', '', ln) if ncm else ln
             desc = re.sub(r'\s{2,}', ' ', desc).strip()
             if len(desc) < 5 and i > 0:
                 desc = lines[i-1]
             qty = None
-                # find quantity only if it appears with unit markers or looks like a decimal count
-                qm = re.search(r'(\d+(?:[\.,]\d+)?)(?=\s*(?:x|X|UN\b|KG\b|PC\b|LT\b|UNID\b|UN\.\b))', ln, re.IGNORECASE)
+            # find quantity only if it appears with unit markers or looks like a decimal count
+            qm = re.search(r'(\d+(?:[\.,]\d+)?)(?=\s*(?:x|X|UN\b|KG\b|PC\b|LT\b|UNID\b|UN\.\b))', ln, re.IGNORECASE)
             if not qm:
                 if i>0:
                     qm = _qty_re.search(lines[i-1])
@@ -269,37 +346,73 @@ def _extract_items_from_lines(lines: List[str]) -> List[Dict[str, Any]]:
             items.append(item)
             i += 1
             continue
-            if _money_re.search(ln) and i>0:
-                prev = lines[i-1]
-                # avoid using a prev line that is numeric-only (CNPJ, peso, codes)
-                if not re.search(r'[A-Za-zÀ-ÿ]', prev):
-                    # previous line has no letters -> likely not a description
-                    i += 1
-                    continue
-                val = _parse_money_token(_money_re.search(ln).group(1))
-                if val is not None and val <= 10000000 and len(prev) > 3:
-                    # also avoid prev that looks like a CNPJ/CPF
-                    if re.search(r'\d{2}[\.\s]?\d{3}[\.\s]?\d{3}[\/]?\d{4}[-\s]?\d{2}|\d{14}', prev):
-                        i += 1
-                        continue
+            
+        # Also look for lines with product codes (common in Leroy Merlin format)
+        codigo_match = re.search(r'^(\d{6,8})\s+(.+)', ln)
+        if codigo_match and i+1 < len(lines):
+            codigo = codigo_match.group(1)
+            desc_part1 = codigo_match.group(2)
+            # Look ahead for value information
+            next_line = lines[i+1]
+            money_next = _money_re.search(next_line)
+            if money_next:
+                # Combine description from current and next line if needed
+                desc = desc_part1
+                if not money_next.group(1) in desc_part1:  # Description doesn't contain the price
+                    desc_parts = next_line.split()
+                    for part in desc_parts:
+                        if not re.search(r'\d+[\.,]\d{2}', part):
+                            desc += ' ' + part
+                
+                val = _parse_money_token(money_next.group(1))
+                if val is not None:
                     item = {
-                        'descricao': prev[:200],
+                        'descricao': desc[:200] if desc else None,
                         'quantidade': None,
                         'unidade': None,
                         'valor_unitario': val,
                         'valor_total': val,
-                        'codigo': None,
+                        'codigo': codigo,
                         'ncm': None,
                         'cfop': None,
                         'cst': None
                     }
                     items.append(item)
+                    i += 2  # Skip next line as we processed it
+                    continue
+        
+        if _money_re.search(ln) and i>0:
+            prev = lines[i-1]
+            # avoid using a prev line that is numeric-only (CNPJ, peso, codes)
+            if not re.search(r'[A-Za-zÀ-ÿ]', prev):
+                # previous line has no letters -> likely not a description
+                i += 1
+                continue
+            val = _parse_money_token(_money_re.search(ln).group(1))
+            if val is not None and val <= 10000000 and len(prev) > 3:
+                # also avoid prev that looks like a CNPJ/CPF
+                if re.search(r'\d{2}[\.\s]?\d{3}[\.\s]?\d{3}[\/]?\d{4}[-\s]?\d{2}|\d{14}', prev):
+                    i += 1
+                    continue
+                item = {
+                    'descricao': prev[:200],
+                    'quantidade': None,
+                    'unidade': None,
+                    'valor_unitario': val,
+                    'valor_total': val,
+                    'codigo': None,
+                    'ncm': None,
+                    'cfop': None,
+                    'cst': None
+                }
+                items.append(item)
         i += 1
     return items
 
 
 def refine_extracted(record: Dict[str, Any], extracted: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Attempt to improve extracted dict by finding missing items, descriptions and codes.
+    Now uses LLM-first approach before falling back to regex.
 
     Returns (updated_extracted, notes)
     notes contains 'filled' dict similar to enrichment_agent.report['filled'] and 'notes' list.
@@ -311,8 +424,55 @@ def refine_extracted(record: Dict[str, Any], extracted: Dict[str, Any]) -> Tuple
     if not isinstance(extracted, dict):
         extracted = {}
 
-    # ITEMS recovery
+    # ITEMS recovery - LLM first
     try:
+        existing_items = extracted.get('itens') if isinstance(extracted.get('itens'), list) else []
+        
+        # Try LLM extraction first
+        llm_items = _extract_items_with_llm(text)
+        
+        if existing_items:
+            # Merge LLM items with existing items
+            for idx, it in enumerate(existing_items):
+                if not it.get('descricao') and idx < len(llm_items):
+                    it['descricao'] = llm_items[idx].get('descricao')
+                    notes['filled'][f'itens[{idx}].descricao'] = it['descricao']
+                    notes['notes'].append(f'LLM extracted descricao for item {idx}')
+                try:
+                    if (it.get('valor_unitario') is None or (isinstance(it.get('valor_unitario'), (int,float)) and it.get('valor_unitario')>1e6)) and llm_items[idx].get('valor_unitario'):
+                        it['valor_unitario'] = llm_items[idx].get('valor_unitario')
+                        notes['filled'][f'itens[{idx}].valor_unitario'] = it['valor_unitario']
+                        notes['notes'].append(f'LLM extracted valor_unitario for item {idx}')
+                    if (it.get('valor_total') is None or (isinstance(it.get('valor_total'), (int,float)) and it.get('valor_total')>1e6)) and llm_items[idx].get('valor_total'):
+                        it['valor_total'] = llm_items[idx].get('valor_total')
+                        notes['filled'][f'itens[{idx}].valor_total'] = it['valor_total']
+                        notes['notes'].append(f'LLM extracted valor_total for item {idx}')
+                except Exception:
+                    pass
+            extracted['itens'] = existing_items
+        else:
+            if llm_items:
+                extracted['itens'] = llm_items
+                notes['filled']['itens'] = llm_items
+                notes['notes'].append(f'LLM extracted {len(llm_items)} items')
+
+        # Extract fiscal codes using LLM first
+        cf = extracted.get('codigos_fiscais') if isinstance(extracted.get('codigos_fiscais'), dict) else {}
+        llm_codes = _extract_codes_with_llm(text)
+        
+        for code_name, code_value in llm_codes.items():
+            if code_value and not cf.get(code_name):
+                cf[code_name] = code_value
+                notes['filled'][f'codigos_fiscais.{code_name}'] = code_value
+                notes['notes'].append(f'LLM extracted {code_name}: {code_value}')
+        
+        if cf:
+            extracted['codigos_fiscais'] = cf
+
+    except Exception as e:
+        notes['notes'].append(f'LLM items/codes extraction failed: {e}, falling back to regex')
+        
+        # Fallback to original regex-based extraction
         existing_items = extracted.get('itens') if isinstance(extracted.get('itens'), list) else []
         recovered = []
         lines = _find_product_section_lines(text)
@@ -337,7 +497,7 @@ def refine_extracted(record: Dict[str, Any], extracted: Dict[str, Any]) -> Tuple
                 extracted['itens'] = cand
                 notes['filled']['itens'] = cand
 
-        # try to extract NCM/CFOP into codigos_fiscais if missing
+        # Fallback regex extraction for codes
         cf = extracted.get('codigos_fiscais') if isinstance(extracted.get('codigos_fiscais'), dict) else {}
         if not cf.get('ncm'):
             m = _ncm_re.search(text)
@@ -349,11 +509,18 @@ def refine_extracted(record: Dict[str, Any], extracted: Dict[str, Any]) -> Tuple
             if m2:
                 cf['cfop'] = m2.group(1)
                 notes['filled']['codigos_fiscais.cfop'] = cf['cfop']
+        if not cf.get('cst'):
+            m3 = _cst_re.search(text)
+            if m3:
+                cf['cst'] = m3.group(1)
+                notes['filled']['codigos_fiscais.cst'] = cf['cst']
+        if not cf.get('csosn'):
+            m4 = _csosn_re.search(text)
+            if m4:
+                cf['csosn'] = m4.group(1)
+                notes['filled']['codigos_fiscais.csosn'] = cf['csosn']
         if cf:
             extracted['codigos_fiscais'] = cf
-
-    except Exception as e:
-        notes['notes'].append(f'items recovery failed: {e}')
 
     # PARTY names alternatives
     try:

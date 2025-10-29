@@ -116,3 +116,196 @@ def verify_total_with_llm(items: list, reported_total: Optional[float], context_
         return {'ok': True, 'decision': decision, 'llm_total': llm_total, 'confidence': confidence, 'explanation': explanation, 'raw': parsed}
     except Exception as e:
         return {'ok': False, 'reason': 'exception', 'error': str(e)}
+
+
+def extract_field_with_llm(field_name: str, context_text: str, field_description: str = None, model: Optional[str] = None, timeout: int = 8) -> Dict[str, Any]:
+    """Ask the LLM to extract a specific field from text. Returns a dict with keys: ok, value, confidence, explanation.
+    If no API key or the call fails, returns ok=False and reason.
+    """
+    if not OPENROUTER_API_KEY:
+        return {'ok': False, 'reason': 'no_key'}
+
+    model_to_use = model or OPENROUTER_DEFAULT_MODEL
+    
+    if not field_description:
+        field_descriptions = {
+            'natureza_operacao': 'a natureza da operação (ex: VENDA, COMPRA, TRANSFERENCIA, DEVOLUCAO, REMESSA, etc.)',
+            'forma_pagamento': 'a forma de pagamento (ex: DINHEIRO, CARTAO, BOLETO, PIX, CHEQUE, CREDITO, DEBITO, A VISTA, A PRAZO, etc.)',
+            'cst': 'o código CST (Código de Situação Tributária) - 2 ou 3 dígitos (ex: 00, 10, 20, 101, 102, etc.)',
+            'csosn': 'o código CSOSN (Código de Situação da Operação no Simples Nacional) - 3 dígitos (ex: 101, 102, 103, 201, etc.)',
+            'aliquota_icms': 'a alíquota do ICMS em percentual (ex: 18%, 12%, 7%, etc.)',
+            'cfop': 'o código CFOP (Código Fiscal de Operações e Prestações) - 4 dígitos (ex: 5102, 6102, 1102, etc.)',
+            'ncm': 'o código NCM (Nomenclatura Comum do Mercosul) - 8 dígitos (ex: 12345678)'
+        }
+        field_description = field_descriptions.get(field_name, f'o campo {field_name}')
+
+    prompt = f"""Você é um especialista em documentos fiscais brasileiros. Extraia {field_description} do texto fornecido.
+
+Texto do documento:
+        try:
+            parsed = json.loads(txt)
+        except Exception:
+            # try to find first { ... }
+            f = txt.find('{')
+            l = txt.rfind('}')
+            if f != -1 and l != -1 and l > f:
+                try:
+                    parsed = json.loads(txt[f:l+1])
+                except Exception:
+                    parsed = None
+            else:
+                parsed = None
+
+        if not parsed or not isinstance(parsed, dict):
+            return {'ok': False, 'reason': 'parse_failed', 'raw_text': txt[:2000]}
+
+        # normalize fields
+        decision = parsed.get('decision') or parsed.get('action') or None
+        llm_total = parsed.get('llm_total') if 'llm_total' in parsed else parsed.get('total') if 'total' in parsed else None
+        confidence = parsed.get('confidence') if 'confidence' in parsed else None
+        explanation = parsed.get('explanation') or parsed.get('reason') or ''
+        value = parsed.get('value')
+        # Post-process for valor_total: reject implausible values (e.g., CNPJ-like numbers)
+        try:
+            if value is not None:
+                value = float(value)
+                if field_name == 'valor_total' and value > 10_000_000:
+                    value = None
+            elif llm_total is not None:
+                llm_total = float(llm_total)
+                if field_name == 'valor_total' and llm_total > 10_000_000:
+                    llm_total = None
+        except Exception:
+            value = parsed.get('value')
+        return {
+            'ok': True,
+            'value': value if value is not None else llm_total,
+            'confidence': confidence,
+            'explanation': explanation,
+            'raw': parsed
+        }
+        # extract JSON from content
+        txt = content.strip()
+        try:
+            parsed = json.loads(txt)
+        except Exception:
+            # try to find first { ... }
+            f = txt.find('{')
+            l = txt.rfind('}')
+            if f != -1 and l != -1 and l > f:
+                try:
+                    parsed = json.loads(txt[f:l+1])
+                except Exception:
+                    parsed = None
+            else:
+                parsed = None
+
+        if not parsed or not isinstance(parsed, dict):
+            return {'ok': False, 'reason': 'parse_failed', 'raw_text': txt[:2000]}
+
+        value = parsed.get('value')
+        confidence = parsed.get('confidence', 0.0)
+        explanation = parsed.get('explanation', '')
+        
+        try:
+            if confidence is not None:
+                confidence = float(confidence)
+        except Exception:
+            confidence = 0.0
+
+        return {'ok': True, 'value': value, 'confidence': confidence, 'explanation': explanation, 'raw': parsed}
+    except Exception as e:
+        return {'ok': False, 'reason': 'exception', 'error': str(e)}
+
+
+def extract_items_with_llm(context_text: str, model: Optional[str] = None, timeout: int = 12) -> Dict[str, Any]:
+    """Ask the LLM to extract items from text. Returns a dict with keys: ok, items, confidence, explanation.
+    If no API key or the call fails, returns ok=False and reason.
+    """
+    if not OPENROUTER_API_KEY:
+        return {'ok': False, 'reason': 'no_key'}
+
+    model_to_use = model or OPENROUTER_DEFAULT_MODEL
+    
+    prompt = f"""Você é um especialista em documentos fiscais brasileiros. Extraia TODOS os itens/produtos do documento fornecido.
+
+Texto do documento:
+{context_text}
+
+Instruções CRÍTICAS:
+- Identifique TODOS os produtos/serviços listados - não pare no primeiro item!
+- Procure por padrões como código + descrição + valor, ou listas de produtos
+- Para cada item encontrado, extraia: descricao, quantidade, unidade, valor_unitario, valor_total, ncm, cfop, cst
+- Em notas da Leroy Merlin, procure por códigos de 6-8 dígitos seguidos de descrição
+- Em cupons iFood/delivery, procure por linha por linha cada produto
+- Retorne um JSON com as chaves: items (array de objetos), confidence (0.0-1.0), explanation (breve explicação)
+- Se não encontrar itens, retorne items: []
+- Para valores monetários, use formato decimal (ex: 42.50)
+- Para códigos (NCM, CFOP, CST), retorne apenas os dígitos
+- IMPORTANTE: Continue lendo até o final para capturar todos os itens
+
+Exemplo de formato de retorno:
+{{"items": [{{"descricao": "PRODUTO A", "quantidade": 10.0, "unidade": "UN", "valor_unitario": 42.0, "valor_total": 420.0, "ncm": "12345678", "cfop": "5102", "cst": "00"}}], "confidence": 0.9, "explanation": "Encontrados X itens na seção de produtos"}}
+
+Responda apenas em JSON:"""
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
+    body = {
+        "model": model_to_use,
+        "messages": [
+            {"role": "system", "content": "Você é um especialista rigoroso em documentos fiscais brasileiros."},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 800,
+        "temperature": 0.0
+    }
+    
+    try:
+        r = requests.post(url, headers=headers, json=body, timeout=timeout)
+        if r.status_code != 200:
+            return {'ok': False, 'reason': f'http_{r.status_code}', 'text': r.text[:1000]}
+        
+        data = r.json()
+        content = None
+        if isinstance(data, dict):
+            try:
+                content = data.get('choices', [])[0].get('message', {}).get('content')
+            except Exception:
+                content = None
+        
+        if not content:
+            return {'ok': False, 'reason': 'no_content', 'raw': data}
+
+        # extract JSON from content
+        txt = content.strip()
+        try:
+            parsed = json.loads(txt)
+        except Exception:
+            # try to find first { ... }
+            f = txt.find('{')
+            l = txt.rfind('}')
+            if f != -1 and l != -1 and l > f:
+                try:
+                    parsed = json.loads(txt[f:l+1])
+                except Exception:
+                    parsed = None
+            else:
+                parsed = None
+
+        if not parsed or not isinstance(parsed, dict):
+            return {'ok': False, 'reason': 'parse_failed', 'raw_text': txt[:2000]}
+
+        items = parsed.get('items', [])
+        confidence = parsed.get('confidence', 0.0)
+        explanation = parsed.get('explanation', '')
+        
+        try:
+            if confidence is not None:
+                confidence = float(confidence)
+        except Exception:
+            confidence = 0.0
+
+        return {'ok': True, 'items': items, 'confidence': confidence, 'explanation': explanation, 'raw': parsed}
+    except Exception as e:
+        return {'ok': False, 'reason': 'exception', 'error': str(e)}

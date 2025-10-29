@@ -144,8 +144,8 @@ export default function DocumentModal({docId, onClose}){
                   <div className="value">{ed?.forma_pagamento || '—'}</div>
                 </div>
                 <div className="card">
-                  <label>Valor total (decl.)</label>
-                  <div className="value">R$ {ed?.valor_total ?? doc.aggregates?.valor_total_calc ?? '—'}</div>
+                  <label>Valor total impostos</label>
+                  <div className="value">R$ {ed?.valor_total_impostos ?? '—'}</div>
                 </div>
               </div>
 

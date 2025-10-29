@@ -125,17 +125,21 @@ export default function ProcessingHistory({onOpenDocument, uploadedDocs}){
                 <th>Status</th>
                 <th>Valor Total</th>
                 <th>Emitente</th>
-                <th>Data</th>
+                <th>Data da Nota</th>
+                <th>Data Processamento</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {docs.map(d=>{
-                const val = d?.extracted_data?.valor_total ?? d?.aggregates?.valor_total_calc ?? '';
+                // Prefer aggregates.valor_total_calc over extracted_data.valor_total for better accuracy
+                const val = d?.aggregates?.valor_total_calc ?? d?.extracted_data?.valor_total ?? '';
                 const emit = d?.extracted_data?.emitente?.razao_social || d?.extracted_data?.emitente?.nome || '';
                 const ts = (d.uploaded_at || d.created_at || '').replace('T',' ').split('.')[0] || '';
                 const filename = d.filename || d.id;
                 const label = `${filename}${ts? ' — ' + ts : ''} — ${d.id}`;
+                // Extract nota emission date
+                const dataEmissao = d?.extracted_data?.data_emissao || '';
           return (
             <tr id={`doc-row-${d.id}`} key={d.id} className="history-row" style={d.id === selectedId ? { background: '#f0f9ff' } : undefined}>
                     <td className="col-file" title={label}>
@@ -147,6 +151,7 @@ export default function ProcessingHistory({onOpenDocument, uploadedDocs}){
                     <td className="col-status"><StatusBadge status={d.status} /></td>
                     <td className="col-value">R$ {formatCurrency(val)}</td>
                     <td className="col-emitente">{emit || '—'}</td>
+                    <td className="col-date-nota">{dataEmissao || '—'}</td>
                     <td className="col-date">{(d.uploaded_at || d.created_at || '').split('T')[0] || '—'}</td>
                     <td className="col-actions">
                       <button className="btn btn-primary icon-only" onClick={()=>{

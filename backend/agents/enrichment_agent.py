@@ -104,50 +104,265 @@ def find_numero_nota(text: str) -> Optional[str]:
     return None
 
 
+def find_natureza_operacao(text: str) -> Optional[str]:
+    """Extract natureza da operacao - LLM first, then regex fallback."""
+    if not text:
+        return None
+    
+    # Try LLM first
+    try:
+        from . import llm_helper
+        result = llm_helper.extract_field_with_llm('natureza_operacao', text)
+        if result.get('ok') and result.get('value') and result.get('confidence', 0) >= 0.6:
+            return result.get('value')
+    except Exception:
+        pass
+    
+    # Fallback to regex if LLM fails or confidence too low
+    # Common patterns: "NATUREZA DA OPERAÇÃO: VENDA"
+    m = re.search(r'NATUREZA\s+DA\s+OPERA[CÇ][AÃ]O\s*[:\-]?\s*([A-ZÀ-Ú\s]{3,60})', text, re.IGNORECASE)
+    if m:
+        nat = m.group(1).strip()
+        # clean up common noise
+        nat = re.sub(r'\s{2,}', ' ', nat)
+        if len(nat) > 3 and len(nat) < 60:
+            return nat
+    # Fallback: look for common operations
+    common = ['VENDA', 'COMPRA', 'TRANSFERENCIA', 'DEVOLUCAO', 'REMESSA', 'RETORNO']
+    for op in common:
+        if re.search(r'\b' + op + r'\b', text, re.IGNORECASE):
+            return op
+    return None
+
+
+def find_forma_pagamento(text: str) -> Optional[str]:
+    """Extract forma de pagamento - LLM first, then regex fallback."""
+    if not text:
+        return None
+    
+    # Try LLM first
+    try:
+        from . import llm_helper
+        result = llm_helper.extract_field_with_llm('forma_pagamento', text)
+        if result.get('ok') and result.get('value') and result.get('confidence', 0) >= 0.6:
+            return result.get('value')
+    except Exception:
+        pass
+    
+    # Fallback to regex if LLM fails or confidence too low
+    # Common patterns: "FORMA DE PAGAMENTO: DINHEIRO"
+    m = re.search(r'FORMA\s+DE\s+PAGAMENTO\s*[:\-]?\s*([A-ZÀ-Ú\s]{3,40})', text, re.IGNORECASE)
+    if m:
+        forma = m.group(1).strip()
+        forma = re.sub(r'\s{2,}', ' ', forma)
+        if len(forma) > 2 and len(forma) < 40:
+            return forma
+    # Fallback: look for common payment methods
+    common = {
+        r'\bDINHEIRO\b': 'DINHEIRO',
+        r'\bCARTAO\b|\bCARTÃO\b': 'CARTAO',
+        r'\bBOLETO\b': 'BOLETO',
+        r'\bPIX\b': 'PIX',
+        r'\bCHEQUE\b': 'CHEQUE',
+        r'\bCREDITO\b|\bCRÉDITO\b': 'CREDITO',
+        r'\bDEBITO\b|\bDÉBITO\b': 'DEBITO',
+        r'\bA\s+VISTA\b|\bAVISTA\b|\bÀ\s+VISTA\b': 'A VISTA',
+        r'\bA\s+PRAZO\b|\bAPRAZO\b': 'A PRAZO'
+    }
+    for pattern, value in common.items():
+        if re.search(pattern, text, re.IGNORECASE):
+            return value
+    return None
+
+
+def find_aliquota_icms(text: str) -> Optional[float]:
+    """Extract ICMS aliquota - LLM first, then regex fallback."""
+    if not text:
+        return None
+    
+    # Try LLM first
+    try:
+        from . import llm_helper
+        result = llm_helper.extract_field_with_llm('aliquota_icms', text)
+        if result.get('ok') and result.get('value') is not None and result.get('confidence', 0) >= 0.6:
+            try:
+                return float(result.get('value'))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    
+    # Fallback to regex if LLM fails or confidence too low
+    # Pattern: "ALIQ ICMS: 18%" or "ALIQUOTA ICMS 18,00%"
+    m = re.search(r'AL[IÍ]Q(?:UOTA)?\s+(?:DO\s+)?ICMS\s*[:\-]?\s*([0-9]+[\.,]?[0-9]*)\s*%?', text, re.IGNORECASE)
+    if m:
+        try:
+            val = m.group(1).replace(',', '.')
+            return float(val)
+        except Exception:
+            pass
+    return None
+
+
+def find_valor_total_impostos(text: str) -> Optional[float]:
+    """Extract total tax value from text. Looks for patterns like 'Vlr Aprox dos Tributos: R$ 56,49 Federal / R$ 50,40 Estadual'."""
+    if not text:
+        return None
+    
+    # Look for the specific pattern from Brazilian fiscal documents
+    pattern = r'(?:vlr\s+aprox\s+dos\s+tributos|valor\s+aprox\s+tributos|tributos)[:\s]*(?:r\$\s*)?([0-9]+[,\.][0-9]{2})\s*federal\s*[/]\s*(?:r\$\s*)?([0-9]+[,\.][0-9]{2})\s*estadual'
+    m = re.search(pattern, text, re.IGNORECASE)
+    if m:
+        try:
+            federal = float(m.group(1).replace(',', '.'))
+            estadual = float(m.group(2).replace(',', '.'))
+            return federal + estadual
+        except Exception:
+            pass
+    
+    # Alternative pattern: just look for "tributos" with a single value
+    pattern2 = r'(?:vlr\s+aprox\s+dos\s+tributos|valor.*tributos)[:\s]*(?:r\$\s*)?([0-9]+[,\.][0-9]{2})'
+    m2 = re.search(pattern2, text, re.IGNORECASE)
+    if m2:
+        try:
+            return float(m2.group(1).replace(',', '.'))
+        except Exception:
+            pass
+    
+    return None
+
+
 def find_money(text: str) -> Optional[float]:
     if not text:
         return None
-    # find currency-like values, prefer lines with 'total'
-    currency_re = re.compile(r'(?:total|valor total|valor|total\s*[:\-])\s*[:\-]?\s*R?\$?\s*([0-9]+[\.,][0-9]{2})', re.IGNORECASE)
+    
+    # PRIORITY 1: Find explicit "VALOR TOTAL DA NOTA" patterns first
+    valor_total_nota_re = re.compile(r'valor\s+total\s+da\s+nota[:\s]*(?:r\$\s*)?([0-9]+[\.,][0-9]{2})', re.IGNORECASE)
+    m_nota = valor_total_nota_re.search(text)
+    if m_nota:
+        s = m_nota.group(1).replace('.', '').replace(',', '.')
+        try:
+            val = float(s)
+            if val > 0 and val < 10_000_000:
+                return val
+        except Exception:
+            pass
+    
+    # PRIORITY 2: find currency-like values, prefer lines with 'total'
+    currency_re = re.compile(r'(?:valor\s+total|total.*nota|total)\s*[:\-]?\s*R?\$?\s*([0-9]+[\.,][0-9]{2})', re.IGNORECASE)
     m = currency_re.search(text)
     if m:
         s = m.group(1).replace('.', '').replace(',', '.')
         try:
-            return float(s)
+            val = float(s)
+            # Reject implausible values that are likely identifiers (CNPJ-like numbers)
+            if val > 10_000_000:
+                pass
+            else:
+                return val
         except Exception:
             pass
 
-    any_money_re = re.compile(r'R?\$\s*([0-9]+[\.,][0-9]{2})')
+    # PRIORITY 3: Look for explicit currency symbols
+    any_money_re = re.compile(r'R\$\s*([0-9]+[\.,][0-9]{2})')
     m2 = any_money_re.search(text)
     if m2:
         s = m2.group(1).replace('.', '').replace(',', '.')
         try:
-            return float(s)
+            val = float(s)
+            # Reject implausible values that are likely identifiers
+            if val > 10_000_000:
+                pass
+            else:
+                return val
         except Exception:
             pass
 
-    # last resort: last plain number with decimal, but avoid CPF/CNPJ-like tokens or sequences containing '/'
-    last_num = re.findall(r'([0-9]+[\.,][0-9]{2})', text)
-    if last_num:
-        cand = last_num[-1]
-        # avoid interpreting CPF/CNPJ-like tokens or tokens that are part of patterns with '/'
-        # if the surrounding text contains a slash close to the match, it's likely an identifier (CNPJ) not a money value
-        span_index = text.rfind(cand)
-        context = text[max(0, span_index-10): span_index+len(cand)+10]
-        if '/' in context:
-            # likely CNPJ or composed identifier; skip
-            pass
-        else:
-            digits_only = re.sub(r'\D', '', cand)
-            if len(digits_only) in (11, 14):
-                # CPF or CNPJ-like length -> skip
-                pass
-            else:
-                s = cand.replace('.', '').replace(',', '.')
+    # PRIORITY 4: last resort: find decimal numbers, but be very careful to avoid CNPJ/CPF/identifiers
+    decimal_numbers = re.findall(r'([0-9]{1,3}(?:\.[0-9]{3})*[,][0-9]{2})', text)
+    if decimal_numbers:
+        # Prefer the last decimal number that looks like currency (Brazilian format)
+        for cand in reversed(decimal_numbers):
+            # Check context around this number
+            span_index = text.rfind(cand)
+            context_before = text[max(0, span_index-30): span_index]
+            context_after = text[span_index+len(cand): span_index+len(cand)+30]
+            full_context = context_before + cand + context_after
+            
+            # Skip if context suggests it's an identifier
+            if any(keyword in full_context.lower() for keyword in ['cnpj', 'cpf', 'inscr', 'codigo', 'chave']):
+                continue
+            
+            # Skip if surrounded by identifier-like patterns
+            if '/' in full_context or '-' in context_after:
+                continue
+                
+            # Convert and validate
+            s = cand.replace('.', '').replace(',', '.')
+            try:
+                val = float(s)
+                # Reject extremely large values that are likely identifiers
+                if val > 10_000_000:
+                    continue
+                return val
+            except Exception:
+                continue
+    
+    return None
+
+
+def find_total_impostos(text: str) -> Optional[float]:
+    """Extract total tax value from fiscal document text."""
+    if not text:
+        return None
+    
+    # Look for explicit tax total patterns (Brazilian format)
+    tax_patterns = [
+        r'(?:vlr\s+aprox\s+dos\s+tributos?|valor\s+aproximado\s+dos\s+tributos?|total\s+tributos?)\s*:?\s*R?\$?\s*([0-9]+[,\.][0-9]{2})',
+        r'(?:impostos?\s+totais?|total\s+de\s+impostos?)\s*:?\s*R?\$?\s*([0-9]+[,\.][0-9]{2})',
+        r'R\$\s*([0-9]+[,\.][0-9]{2})\s+(?:federal|estadual|municipal)'
+    ]
+    
+    for pattern in tax_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            # Get the first valid tax value
+            for match in matches:
                 try:
-                    return float(s)
+                    s = match.replace('.', '').replace(',', '.')
+                    val = float(s)
+                    if 0 < val < 100000:  # Reasonable tax value range
+                        return val
                 except Exception:
-                    pass
+                    continue
+    
+    # Look for individual tax components to sum
+    tax_components = []
+    individual_patterns = [
+        r'R\$\s*([0-9]+[,\.][0-9]{2})\s+federal',
+        r'R\$\s*([0-9]+[,\.][0-9]{2})\s+estadual',
+        r'R\$\s*([0-9]+[,\.][0-9]{2})\s+municipal',
+        r'icms\s*:?\s*R?\$?\s*([0-9]+[,\.][0-9]{2})',
+        r'ipi\s*:?\s*R?\$?\s*([0-9]+[,\.][0-9]{2})',
+        r'pis\s*:?\s*R?\$?\s*([0-9]+[,\.][0-9]{2})',
+        r'cofins\s*:?\s*R?\$?\s*([0-9]+[,\.][0-9]{2})'
+    ]
+    
+    for pattern in individual_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for match in matches:
+            try:
+                s = match.replace('.', '').replace(',', '.')
+                val = float(s)
+                if 0 < val < 100000:
+                    tax_components.append(val)
+            except Exception:
+                continue
+    
+    # Return sum of individual components if found
+    if tax_components:
+        return sum(tax_components)
+    
     return None
 
 
@@ -277,6 +492,13 @@ def enrich_record(record: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any
             extracted['emitente']['cnpj'] = c
             report['filled']['emitente.cnpj'] = c
 
+    # Extract valor_total_impostos
+    if not extracted.get('valor_total_impostos'):
+        imp = find_total_impostos(text)
+        if imp is not None:
+            extracted['valor_total_impostos'] = imp
+            report['filled']['valor_total_impostos'] = imp
+
     # Try deeper OCR scanning for address lines if endereco missing
     if not extracted['emitente'].get('endereco') and text:
         try:
@@ -341,6 +563,24 @@ def enrich_record(record: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any
             extracted['valor_total'] = v
             report['filled']['valor_total'] = v
 
+    if not extracted.get('valor_total_impostos'):
+        vti = find_valor_total_impostos(text)
+        if vti is not None:
+            extracted['valor_total_impostos'] = vti
+            report['filled']['valor_total_impostos'] = vti
+
+    if not extracted.get('natureza_operacao'):
+        nat = find_natureza_operacao(text)
+        if nat:
+            extracted['natureza_operacao'] = nat
+            report['filled']['natureza_operacao'] = nat
+
+    if not extracted.get('forma_pagamento'):
+        forma = find_forma_pagamento(text)
+        if forma:
+            extracted['forma_pagamento'] = forma
+            report['filled']['forma_pagamento'] = forma
+
     # itens: if empty and we can find simple lines with currency, add a single inferred item
     if not extracted.get('itens'):
         # look for lines with description followed by money in next line
@@ -375,6 +615,12 @@ def enrich_record(record: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any
                     report['filled']['impostos.icms.valor'] = v
                 except Exception:
                     pass
+        # try to find ICMS aliquota
+        if not (extracted.get('impostos') or {}).get('icms', {}).get('aliquota'):
+            aliq = find_aliquota_icms(text)
+            if aliq is not None:
+                extracted['impostos']['icms']['aliquota'] = aliq
+                report['filled']['impostos.icms.aliquota'] = aliq
     except Exception:
         pass
 
@@ -405,14 +651,18 @@ def enrich_record(record: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any
                 return None
 
         top = to_num_local(extracted.get('valor_total'))
-        if computed is not None and computed > 0:
-            if top is None or abs(computed - top) > 0.5:
-                # adopt computed sum and record note
-                extracted['valor_total'] = computed
-                report['filled']['valor_total'] = computed
-                report['notes'].append(f"valor_total replaced by sum(itens)={computed} (was {top})")
-                # update ag accordingly
-                ag['valor_total_calc'] = computed
+        # PREFER EXPLICIT VALUES FROM OCR/LLM over calculated sums
+        # Only use calculated value if no explicit value was found
+        if top is not None and top > 0:
+            # Keep the explicit value from OCR/LLM - it's more reliable than calculations
+            ag['valor_total_calc'] = top
+            report['notes'].append(f"Using explicit valor_total={top} from OCR/LLM (computed sum was {computed})")
+        elif computed is not None and computed > 0:
+            # Only use computed sum as fallback when no explicit value found
+            extracted['valor_total'] = computed
+            report['filled']['valor_total'] = computed
+            report['notes'].append(f"Using computed valor_total={computed} (no explicit value found)")
+            ag['valor_total_calc'] = computed
     except Exception:
         pass
 
